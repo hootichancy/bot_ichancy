@@ -3,174 +3,144 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>عجلة الحظ</title>
+    <title>عجلة الحظ 🎡</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         body {
-            background: linear-gradient(135deg, #0a192f, #1e3a8a);
-            color: #f3f4f6;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            text-align: center;
             margin: 0;
-            padding: 20px;
+            padding: 0;
+            background: radial-gradient(circle, #001f3f, #000000); /* أزرق داكن و أسود */
+            color: #FFD700; /* ذهبي */
+            font-family: 'Tajawal', sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            min-height: 100vh;
+            height: 100vh;
+            overflow: hidden;
         }
-        h2 { color: #f59e0b; text-shadow: 0 0 10px rgba(245, 158, 11, 0.5); }
+        h1 {
+            text-shadow: 0 0 10px #FFD700;
+        }
         .wheel-container {
             position: relative;
-            width: 320px;
-            height: 320px;
+            width: 300px;
+            height: 300px;
             margin: 20px 0;
         }
-        canvas {
+        .wheel {
+            width: 100%;
+            height: 100%;
             border-radius: 50%;
-            box-shadow: 0 0 20px #f59e0b, 0 0 40px #1d4ed8;
+            border: 5px solid #FFD700;
+            background: conic-gradient(
+                #003366 0deg 40deg, #00509E 40deg 80deg, 
+                #003366 80deg 120deg, #00509E 120deg 160deg,
+                #003366 160deg 200deg, #00509E 200deg 240deg,
+                #003366 240deg 280deg, #00509E 280deg 320deg,
+                #003366 320deg 360deg
+            );
+            box-shadow: 0 0 20px #FFD700, inset 0 0 20px #000;
+            transition: transform 4s cubic-bezier(0.17, 0.67, 0.1, 1); /* حركة خرافية */
+            position: relative;
         }
+        /* المؤشر */
         .pointer {
             position: absolute;
-            top: -10px;
+            top: -15px;
             left: 50%;
             transform: translateX(-50%);
             width: 0;
             height: 0;
-            border-left: 15px solid transparent;
-            border-right: 15px solid transparent;
-            border-top: 25px solid #f59e0b;
+            border-left: 20px solid transparent;
+            border-right: 20px solid transparent;
+            border-top: 30px solid #FFD700;
             z-index: 10;
         }
-        button {
-            background: linear-gradient(90deg, #d97706, #f59e0b);
+        .spin-btn {
+            background: linear-gradient(45deg, #FFD700, #DAA520);
             color: #000;
-            font-weight: bold;
-            font-size: 18px;
-            padding: 12px 30px;
             border: none;
+            padding: 15px 40px;
+            font-size: 20px;
+            font-weight: bold;
             border-radius: 25px;
             cursor: pointer;
-            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
-            transition: all 0.3s;
+            box-shadow: 0 5px 15px rgba(255, 215, 0, 0.4);
         }
-        button:disabled { background: #6b7280; cursor: not-allowed; }
-        #result { margin-top: 15px; font-size: 20px; font-weight: bold; color: #10b981; }
+        .spin-btn:active {
+            transform: scale(0.95);
+        }
     </style>
 </head>
 <body>
-    <h2>🎡 عجلة الحظ 🎡</h2>
-    <p>لفاتك المتبقية: <span id="spins-count">0</span></p>
 
+    <h1>عجلة الحظ الملكية 🎰</h1>
+    
     <div class="wheel-container">
         <div class="pointer"></div>
-        <canvas id="wheel" width="320" height="320"></canvas>
+        <div class="wheel" id="wheel">
+            <!-- التصميم يعتمد على CSS Conic Gradient للتبسيط وزيادة الأداء -->
+        </div>
     </div>
 
-    <button id="spin-btn" onclick="spinWheel()">تدوير العجلة</button>
-    <div id="result"></div>
+    <button class="spin-btn" id="spinBtn">ابدأ الدوران</button>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
-        const userId = tg.initDataUnsafe?.user?.id || 0;
+        
+        const urlParams = new URLSearchParams(window.location.search);
+        const userId = urlParams.get('user_id');
 
-        const prizes = [0, 5, 10, 15, 25, 50, 100, 500, 10000];
-        const colors = ['#1e3a8a', '#d97706', '#1e40af', '#b45309', '#1d4ed8', '#f59e0b', '#2563eb', '#d97706', '#3b82f6'];
-        const canvas = document.getElementById('wheel');
-        const ctx = canvas.getContext('2d');
-        let startAngle = 0;
-        const arc = Math.PI / (prizes.length / 2);
-        let isSpinning = false;
+        document.getElementById('spinBtn').addEventListener('click', async () => {
+            if (!userId) return Swal.fire('خطأ', 'لم يتم التعرف على المستخدم', 'error');
+            
+            document.getElementById('spinBtn').disabled = true;
 
-        function drawWheel() {
-            for (let i = 0; i < prizes.length; i++) {
-                const angle = startAngle + i * arc;
-                ctx.fillStyle = colors[i % colors.length];
-                ctx.beginPath();
-                ctx.arc(160, 160, 150, angle, angle + arc, false);
-                ctx.arc(160, 160, 0, angle + arc, angle, true);
-                ctx.fill();
-                ctx.strokeStyle = "#f59e0b";
-                ctx.lineWidth = 2;
-                ctx.stroke();
-
-                ctx.save();
-                ctx.fillStyle = "#ffffff";
-                ctx.font = "bold 14px Arial";
-                ctx.translate(160 + Math.cos(angle + arc / 2) * 110, 160 + Math.sin(angle + arc / 2) * 110);
-                ctx.rotate(angle + arc / 2 + Math.PI / 2);
-                ctx.fillText(prizes[i].toString(), -ctx.measureText(prizes[i].toString()).width / 2, 0);
-                ctx.restore();
-            }
-        }
-
-        async function fetchUserData() {
-            if(!userId) return;
+            // طلب النتيجة من السيرفر قبل الدوران
             try {
-                const res = await fetch(`/api/user_spins?user_id=${userId}`);
-                const data = await res.json();
-                document.getElementById('spins-count').innerText = data.spins;
-            } catch(e) {}
-        }
-
-        async function spinWheel() {
-            if (isSpinning) return;
-            isSpinning = true;
-            document.getElementById('spin-btn').disabled = true;
-            document.getElementById('result').innerText = "";
-
-            try {
-                const res = await fetch('/api/spin', {
+                const response = await fetch('/spin', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ user_id: userId })
+                    body: JSON.stringify({user_id: userId})
                 });
-                const data = await res.json();
                 
-                if (!data.success) {
-                    alert(data.message);
-                    isSpinning = false;
-                    document.getElementById('spin-btn').disabled = false;
+                const data = await response.json();
+                
+                if (data.error) {
+                    Swal.fire('عذراً', data.error, 'warning');
+                    document.getElementById('spinBtn').disabled = false;
                     return;
                 }
 
-                const prizeIndex = prizes.indexOf(data.prize);
-                const degreesPerSlice = 360 / prizes.length;
-                const targetDegree = 360 - (prizeIndex * degreesPerSlice) - (degreesPerSlice / 2) + 270;
-                const totalRotation = 360 * 5 + targetDegree;
+                // حركة الدوران العشوائية البصرية
+                const wheel = document.getElementById('wheel');
+                const extraSpins = 360 * 5; // 5 لفات كاملة
+                const randomDegree = Math.floor(Math.random() * 360); 
+                const totalDegree = extraSpins + randomDegree;
+                
+                wheel.style.transform = `rotate(${totalDegree}deg)`;
 
-                let currentRotation = 0;
-                const duration = 4000;
-                const startTime = performance.now();
+                // الانتظار حتى تنتهي الحركة (4 ثواني)
+                setTimeout(() => {
+                    Swal.fire({
+                        title: 'مبروووك! 🎉',
+                        text: `لقد ربحت ${data.prize}`,
+                        icon: 'success',
+                        confirmButtonText: 'إغلاق',
+                        confirmButtonColor: '#FFD700'
+                    }).then(() => {
+                        tg.close(); // إغلاق النافذة والعودة للبوت
+                    });
+                }, 4100);
 
-                function animate(now) {
-                    const elapsed = now - startTime;
-                    const progress = Math.min(elapsed / duration, 1);
-                    const easeOut = 1 - Math.pow(1 - progress, 3);
-                    
-                    startAngle = (easeOut * totalRotation * Math.PI / 180);
-                    drawWheel();
-
-                    if (progress < 1) {
-                        requestAnimationFrame(animate);
-                    } else {
-                        isSpinning = false;
-                        document.getElementById('spin-btn').disabled = false;
-                        document.getElementById('result').innerText = `🎉 مبروك! فزت بـ ${data.prize} نقطة!`;
-                        fetchUserData();
-                    }
-                }
-                requestAnimationFrame(animate);
-            } catch (e) {
-                alert("حدث خطأ في الاتصال");
-                isSpinning = false;
-                document.getElementById('spin-btn').disabled = false;
+            } catch (err) {
+                Swal.fire('خطأ', 'حدث خطأ في الاتصال بالخادم', 'error');
+                document.getElementById('spinBtn').disabled = false;
             }
-        }
-
-        drawWheel();
-        fetchUserData();
+        });
     </script>
 </body>
 </html>
