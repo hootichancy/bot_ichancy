@@ -3,8 +3,8 @@ import re
 import sqlite3
 import random
 import datetime
-from threading import Thread
-from flask import Flask
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from telebot import types
 
@@ -16,17 +16,21 @@ DEV_CHANNEL_USERNAME = "lerafree"
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
-# ==================== سيرفر Flask (جاهز لـ Render و UptimeRobot) ====================
-app = Flask(__name__)
+# ==================== سيرفر وهمي مستقل وفارغ تماماً (بدون قاعدة بيانات) ====================
+class DummyHealthCheckServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"AUREX Standalone Dummy Server is Running & Healthy!")
 
-@app.route('/')
-def health_check():
-    # استجابة خفيفة وسريعة لمراقبة UptimeRobot و Render
-    return "AUREX Bot Web Server is Active & Healthy!", 200
+    def log_message(self, format, *args):
+        return  # إخفاء السجلات لمنع استهلاك الموارد
 
-def run_flask():
+def run_dummy_server():
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    server = HTTPServer(("0.0.0.0", port), DummyHealthCheckServer)
+    server.serve_forever()
 
 # ==================== قاعدة البيانات ====================
 def get_db():
@@ -286,6 +290,37 @@ def admin_promo_menu_keyboard():
     kb.add(types.InlineKeyboardButton("🔙 رجوع للإدارة", callback_data="admin_panel"))
     return kb
 
+# ==================== اختبار الكابتشا والقنوات ====================
+def send_force_sub_msg(user_id):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("📢 قناة المبرمج (إجباري)", url=DEV_CHANNEL_URL))
+    
+    conn = get_db()
+    channels = conn.execute("SELECT url FROM channels").fetchall()
+    conn.close()
+    
+    for ch in channels:
+        kb.add(types.InlineKeyboardButton("📢 قناة إضافية", url=ch['url']))
+        
+    kb.add(types.InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="verify_sub"))
+    bot.send_message(user_id, "⚠️ **يجب عليك الاشتراك في القنوات التالية لاستخدام البوت:**", reply_markup=kb, parse_mode="Markdown")
+
+FRUITS = {'🍎': 'تفاح', '🍌': 'موز', '🍇': 'عنب', '🍊': 'برتقال'}
+
+def send_fruit_captcha(user_id):
+    target_emoji, target_name = random.choice(list(FRUITS.items()))
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    
+    buttons = []
+    for emoji, name in FRUITS.items():
+        cb = f"captcha_correct_{user_id}" if emoji == target_emoji else f"captcha_wrong_{user_id}"
+        buttons.append(types.InlineKeyboardButton(f"{emoji} {name}", callback_data=cb))
+    
+    random.shuffle(buttons)
+    kb.add(*buttons)
+    
+    bot.send_message(user_id, f"🧩 **اختبار الأمان (اختيار الفاكهة)**:\nيرجى اختيار رمز: **{target_name} ({target_emoji})**", reply_markup=kb, parse_mode="Markdown")
+
 # ==================== المعالجة الرئيسية /start ====================
 @bot.message_handler(commands=['start'])
 def start_cmd(message):
@@ -302,7 +337,9 @@ def start_cmd(message):
     args = message.text.split()
     ref_by = int(args[1]) if len(args) > 1 and args[1].isdigit() and int(args[1]) != user_id else None
 
+    is_new = False
     if not user:
+        is_new = True
         conn.execute(
             "INSERT INTO users (user_id, username, first_name, referred_by) VALUES (?, ?, ?, ?)",
             (user_id, message.from_user.username, message.from_user.first_name, ref_by)
@@ -315,6 +352,15 @@ def start_cmd(message):
         bot.send_message(user_id, "❌ أنت محظور من استخدام البوت.")
         return
 
+    # إشعار للمُحيل عند دخول لاعب جديد عبر رابط الإحالة وقبل اجتيازه الاختبار
+    if is_new and ref_by:
+        try:
+            bot.send_message(ref_by, f"🔔 **إشعار دخول**: انضم شخص جديد عن طريق رابطك (`{user_id}`)، ولم يجتاز اختبار الأمان بعد!", parse_mode="Markdown")
+        except Exception:
+            pass
+
+    # --- تسلسل أمان تلقائي متتابع (واحدة تلو الأخرى) ---
+    # الخطوة 1: التأكد من رقم الهاتف
     if not user['phone']:
         kb = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
         kb.add(types.KeyboardButton("📱 مشاركة رقم الهاتف السوري", request_contact=True))
@@ -325,14 +371,17 @@ def start_cmd(message):
         )
         return
 
-    if not check_sub(user_id):
-        send_force_sub_msg(user_id)
-        return
-
+    # الخطوة 2: التأكد من الكابتشا
     if not user['captcha_passed']:
         send_fruit_captcha(user_id)
         return
 
+    # الخطوة 3: التأكد من القنوات الإجبارية
+    if not check_sub(user_id):
+        send_force_sub_msg(user_id)
+        return
+
+    # القائمة الرئيسية عند اكتمال التحقق
     bot.send_message(
         user_id,
         f"أهلاً بك **{message.from_user.first_name}** في البوت الرسمـي! 👋\nاختر من القائمة أدناه:",
@@ -365,38 +414,9 @@ def handle_contact(message):
     conn.close()
 
     bot.send_message(user_id, "✅ تم إثبات رقم الهاتف بنجاح!", reply_markup=types.ReplyKeyboardRemove())
-    start_cmd(message)
-
-# ==================== اختبار الكابتشا والقنوات ====================
-def send_force_sub_msg(user_id):
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("📢 قناة المبرمج (إجباري)", url=DEV_CHANNEL_URL))
     
-    conn = get_db()
-    channels = conn.execute("SELECT url FROM channels").fetchall()
-    conn.close()
-    
-    for ch in channels:
-        kb.add(types.InlineKeyboardButton("📢 قناة إضافية", url=ch['url']))
-        
-    kb.add(types.InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="verify_sub"))
-    bot.send_message(user_id, "⚠️ **يجب عليك الاشتراك في القنوات التالية لاستخدام البوت:**", reply_markup=kb)
-
-FRUITS = {'🍎': 'تفاح', '🍌': 'موز', '🍇': 'عنب', '🍊': 'برتقال'}
-
-def send_fruit_captcha(user_id):
-    target_emoji, target_name = random.choice(list(FRUITS.items()))
-    kb = types.InlineKeyboardMarkup(row_width=2)
-    
-    buttons = []
-    for emoji, name in FRUITS.items():
-        cb = f"captcha_correct_{user_id}" if emoji == target_emoji else f"captcha_wrong_{user_id}"
-        buttons.append(types.InlineKeyboardButton(f"{emoji} {name}", callback_data=cb))
-    
-    random.shuffle(buttons)
-    kb.add(*buttons)
-    
-    bot.send_message(user_id, f"🧩 **اختبار الأمان (اختيار الفاكهة)**:\nيرجى اختيار رمز: **{target_name} ({target_emoji})**", reply_markup=kb)
+    # التتابع التلقائي للخطوة التالية (الكابتشا)
+    send_fruit_captcha(user_id)
 
 # ==================== معالجة أزرار Inline Callbacks ====================
 @bot.callback_query_handler(func=lambda call: True)
@@ -437,8 +457,9 @@ def handle_callbacks(call):
             conn.execute("UPDATE users SET balance = balance + ?, referrals_count = referrals_count + 1 WHERE user_id=?", (ref_reward, ref_id))
             conn.commit()
             try:
-                bot.send_message(ref_id, f"🎉 انضم شخص جديد عن طريق رابطك! حصلت على **{ref_reward} NPS**")
-                bot.send_message(SUPER_ADMIN_ID, f"🔔 **إشعار إحالة**:\nالمستخدم: `{user_id}`\nعن طريق: `{ref_id}`", parse_mode="Markdown")
+                # إشعار اجتياز صديقك الاختبار وتلقي المكافأة
+                bot.send_message(ref_id, f"🎉 **مبروك!** اجتاز صديقك الاختبار وحصلت على **{ref_reward} NPS**!", parse_mode="Markdown")
+                bot.send_message(SUPER_ADMIN_ID, f"🔔 **إشعار إحالة مكتملة**:\nالمستخدم: `{user_id}`\nعن طريق: `{ref_id}`", parse_mode="Markdown")
             except Exception:
                 pass
         else:
@@ -446,7 +467,12 @@ def handle_callbacks(call):
             
         conn.close()
         bot.send_message(user_id, "✅ تم تخطي اختبار الأمان بنجاح!")
-        start_cmd(call.message)
+        
+        # التتابع التلقائي للخطوة التالية (التحقق من الاشتراك ثم المنيو الرئيسي)
+        if not check_sub(user_id):
+            send_force_sub_msg(user_id)
+        else:
+            start_cmd(call.message)
         return
 
     if data.startswith("captcha_wrong_"):
@@ -497,7 +523,7 @@ def handle_callbacks(call):
         if user['last_daily']:
             last_d = datetime.datetime.strptime(user['last_daily'], '%Y-%m-%d %H:%M:%S')
             if (datetime.datetime.now() - last_d).total_seconds() < cooldown_hours * 3600:
-                bot.send_message(user_id, "⏳ لقد حصلت على الهدية اليومية بالفعل! عد غداً.")
+                bot.send_message(user_id, "⏳ لقدحصلت على الهدية اليومية بالفعل! عد غداً.")
                 return
         
         reward = float(get_setting("daily_reward"))
@@ -506,7 +532,7 @@ def handle_callbacks(call):
         conn.execute("UPDATE users SET last_daily=? WHERE user_id=?", (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user_id))
         conn.commit()
         conn.close()
-        bot.send_message(user_id, f"🎁 حصلت على هديتك اليومية بقيمة **{reward} NPS**!")
+        bot.send_message(user_id, f"🎁 حصلت على هديتك اليومية بقيمة **{reward} NPS**!", parse_mode="Markdown")
 
     elif data == "user_weekly":
         cooldown_hours = 168
@@ -522,7 +548,7 @@ def handle_callbacks(call):
         conn.execute("UPDATE users SET last_weekly=? WHERE user_id=?", (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user_id))
         conn.commit()
         conn.close()
-        bot.send_message(user_id, f"🏆 حصلت على هديتك الأسبوعية بقيمة **{reward} NPS**!")
+        bot.send_message(user_id, f"🏆 حصلت على هديتك الأسبوعية بقيمة **{reward} NPS**!", parse_mode="Markdown")
 
     elif data == "user_promo":
         cooldown = int(get_setting("promo_cooldown_hours"))
@@ -578,7 +604,7 @@ def handle_callbacks(call):
         elif data.startswith("set_cfg_"):
             cfg_key = data.replace("set_cfg_", "")
             curr_val = get_setting(cfg_key)
-            msg = bot.send_message(user_id, f"القيمة الحالية لـ `{cfg_key}` هي: `{curr_val}`\nأدخل القيمة الجديدة الآن:")
+            msg = bot.send_message(user_id, f"القيمة الحالية لـ `{cfg_key}` هي: `{curr_val}`\nأدخل القيمة الجديدة الآن:", parse_mode="Markdown")
             bot.register_next_step_handler(msg, process_single_setting_update, cfg_key)
 
         elif data.startswith("adm_del_chan_"):
@@ -613,11 +639,11 @@ def handle_callbacks(call):
             bot.register_next_step_handler(msg, process_adm_add_admin)
 
         elif data == "adm_add_channel":
-            msg = bot.send_message(user_id, "أدخل معرف القناة ورابطها بالنمط التالي:\n`@channel_username https://t.me/channel_url`")
+            msg = bot.send_message(user_id, "أدخل معرف القناة ورابطها بالنمط التالي:\n`@channel_username https://t.me/channel_url`", parse_mode="Markdown")
             bot.register_next_step_handler(msg, process_adm_add_channel)
 
         elif data == "adm_gen_code":
-            msg = bot.send_message(user_id, "أدخل بيانات الكود بالشكل التالي:\n`اسم_الكود القيمة عدد_الاستخدامات`\nمثال: `FREE50 10 100`")
+            msg = bot.send_message(user_id, "أدخل بيانات الكود بالشكل التالي:\n`اسم_الكود القيمة عدد_الاستخدامات`\nمثال: `FREE50 10 100`", parse_mode="Markdown")
             bot.register_next_step_handler(msg, process_gen_code)
 
         elif data == "adm_reset_balances":
@@ -628,7 +654,7 @@ def handle_callbacks(call):
             bot.send_message(user_id, "✅ تم تصفير جميع أرصدة المستخدمين بنجاح.")
 
         elif data == "adm_private_msg":
-            msg = bot.send_message(user_id, "أدخل ID المستخدم ثم النص بالنمط التالي:\n`user_id الرسالة`")
+            msg = bot.send_message(user_id, "أدخل ID المستخدم ثم النص بالنمط التالي:\n`user_id الرسالة`", parse_mode="Markdown")
             bot.register_next_step_handler(msg, process_adm_private_msg)
 
         elif data == "adm_broadcast":
@@ -650,7 +676,7 @@ def handle_callbacks(call):
 
         elif data.startswith("reply_supp_"):
             target_uid = data.split("_")[2]
-            msg = bot.send_message(user_id, f"اكتب الرد الموجه للعميل `{target_uid}`:")
+            msg = bot.send_message(user_id, f"اكتب الرد الموجه للعميل `{target_uid}`:", parse_mode="Markdown")
             bot.register_next_step_handler(msg, process_reply_support, target_uid)
 
 # ==================== المعالجات المتسلسلة (Next Step Handlers) ====================
@@ -719,8 +745,8 @@ def process_promo_code(message):
     conn.close()
 
     update_balance(user_id, reward)
-    bot.send_message(user_id, f"🎉 تم تفعيل الكود بنجاح! حصلت على **{reward} NPS**")
-    bot.send_message(SUPER_ADMIN_ID, f"🔔 المستخدم `{user_id}` استخدم الكود `{code_text}`")
+    bot.send_message(user_id, f"🎉 تم تفعيل الكود بنجاح! حصلت على **{reward} NPS**", parse_mode="Markdown")
+    bot.send_message(SUPER_ADMIN_ID, f"🔔 المستخدم `{user_id}` استخدم الكود `{code_text}`", parse_mode="Markdown")
 
 def process_support_msg(message):
     user_id = message.from_user.id
@@ -732,7 +758,7 @@ def process_support_msg(message):
 
 def process_reply_support(message, target_uid):
     try:
-        bot.send_message(target_uid, f"💬 **رد من فريق الدعم**:\n\n{message.text}")
+        bot.send_message(target_uid, f"💬 **رد من فريق الدعم**:\n\n{message.text}", parse_mode="Markdown")
         bot.send_message(message.chat.id, "✅ تم إرسال الرد بنجاح.")
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ فشل الإرسال: {e}")
@@ -780,7 +806,7 @@ def process_adm_add_admin(message):
         conn.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (uid,))
         conn.commit()
         conn.close()
-        bot.send_message(message.chat.id, f"✅ تم إسناد صلاحيات الأدمن لـ `{uid}` بنجاح.")
+        bot.send_message(message.chat.id, f"✅ تم إسناد صلاحيات الأدمن لـ `{uid}` بنجاح.", parse_mode="Markdown")
     except Exception:
         bot.send_message(message.chat.id, "❌ خطأ في إدخال ID.")
 
@@ -792,7 +818,7 @@ def process_adm_add_channel(message):
         conn.execute("INSERT OR REPLACE INTO channels (channel_id, url) VALUES (?, ?)", (ch_id, ch_url))
         conn.commit()
         conn.close()
-        bot.send_message(message.chat.id, f"✅ تم إضافة القناة `{ch_id}` بنجاح.")
+        bot.send_message(message.chat.id, f"✅ تم إضافة القناة `{ch_id}` بنجاح.", parse_mode="Markdown")
     except Exception:
         bot.send_message(message.chat.id, "❌ خطأ بالتنسيق.")
 
@@ -800,7 +826,7 @@ def process_adm_private_msg(message):
     try:
         parts = message.text.split(maxsplit=1)
         uid, txt = int(parts[0]), parts[1]
-        bot.send_message(uid, f"📩 **رسالة خاصة من الإدارة**:\n\n{txt}")
+        bot.send_message(uid, f"📩 **رسالة خاصة من الإدارة**:\n\n{txt}", parse_mode="Markdown")
         bot.send_message(message.chat.id, "✅ تم الإرسال بنجاح.")
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ حدث خطأ: {e}")
@@ -814,11 +840,11 @@ def process_adm_broadcast(message):
     count = 0
     for u in users:
         try:
-            bot.send_message(u['user_id'], f"📢 **تنويه جماعي**:\n\n{txt}")
+            bot.send_message(u['user_id'], f"📢 **تنويه جماعي**:\n\n{txt}", parse_mode="Markdown")
             count += 1
         except Exception:
             pass
-    bot.send_message(message.chat.id, f"✅ تم إرسال الإذاعة إلى `{count}` مستخدم.")
+    bot.send_message(message.chat.id, f"✅ تم إرسال الإذاعة إلى `{count}` مستخدم.", parse_mode="Markdown")
 
 def process_adm_ban_user(message):
     try:
@@ -833,7 +859,7 @@ def process_adm_ban_user(message):
         conn.commit()
         conn.close()
         st = "حظر" if new_ban else "إلغاء حظر"
-        bot.send_message(message.chat.id, f"✅ تم {st} المستخدم `{uid}`.")
+        bot.send_message(message.chat.id, f"✅ تم {st} المستخدم `{uid}`.", parse_mode="Markdown")
     except Exception:
         bot.send_message(message.chat.id, "❌ خطأ في ID.")
 
@@ -846,7 +872,7 @@ def handle_chat_member(update):
         if u:
             update_balance(user_id, -3)
             try:
-                bot.send_message(user_id, "⚠️ تم خصم **3 NPS** من رصيدك بسبب مغادرتك إحدى القنوات الإجبارية!")
+                bot.send_message(user_id, "⚠️ تم خصم **3 NPS** من رصيدك بسبب مغادرتك إحدى القنوات الإجبارية!", parse_mode="Markdown")
             except Exception:
                 pass
             
@@ -854,7 +880,7 @@ def handle_chat_member(update):
             if ref_id:
                 update_balance(ref_id, -3)
                 try:
-                    bot.send_message(ref_id, f"⚠️ تم خصم **3 NPS** من رصيدك بسبب مغادرة المستخدم الذي قمت بإحالته (`{user_id}`) للقناة!")
+                    bot.send_message(ref_id, f"⚠️ تم خصم **3 NPS** من رصيدك بسبب مغادرة المستخدم الذي قمت بإحالته (`{user_id}`) للقناة!", parse_mode="Markdown")
                 except Exception:
                     pass
 
@@ -865,9 +891,9 @@ def auto_reaction_handler(message):
 
 # ==================== تشغيل التطبيق ====================
 if __name__ == "__main__":
-    flask_thread = Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
+    # تشغيل السيرفر الوهمي الخفيف والمستقل في مسار منفصل
+    server_thread = threading.Thread(target=run_dummy_server, daemon=True)
+    server_thread.start()
 
     # إلغاء الـ Webhook القديم لمنع خطأ Error 409 Conflict
     try:
