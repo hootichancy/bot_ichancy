@@ -3,8 +3,6 @@ import re
 import sqlite3
 import random
 import datetime
-from threading import Thread
-from flask import Flask
 import telebot
 from telebot import types
 
@@ -15,17 +13,6 @@ DEV_CHANNEL_URL = "https://t.me/lerafree"
 DEV_CHANNEL_USERNAME = "lerafree"
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
-
-# ==================== سيرفر Flask المدمج ====================
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "AUREX Bot Web Server is Active!", 200
-
-def run_flask():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
 
 # ==================== قاعدة البيانات ====================
 def get_db():
@@ -154,7 +141,6 @@ def send_random_reaction(chat_id, message_id):
 
 # ==================== التحقق من القنوات والأمان ====================
 def check_sub(user_id):
-    # قناة المبرمج الأساسية
     try:
         member = bot.get_chat_member(f"@{DEV_CHANNEL_USERNAME}", user_id)
         if member.status in ['left', 'kicked']:
@@ -162,7 +148,6 @@ def check_sub(user_id):
     except Exception:
         pass
 
-    # القنوات الإضافية
     conn = get_db()
     channels = conn.execute("SELECT channel_id FROM channels").fetchall()
     conn.close()
@@ -176,40 +161,104 @@ def check_sub(user_id):
             continue
     return True
 
-# ==================== القوائم والأزرار الشات ====================
+# ==================== القوائم والأزرار الاحترافية المطورة ====================
 def main_menu_keyboard(user_id):
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
-        types.InlineKeyboardButton("💰 رصيدي", callback_data="user_balance"),
-        types.InlineKeyboardButton("💳 سحب رصيد", callback_data="user_withdraw"),
-        types.InlineKeyboardButton("🎁 هدية يومية", callback_data="user_daily"),
-        types.InlineKeyboardButton("🏆 هدية اسبوعية", callback_data="user_weekly"),
-        types.InlineKeyboardButton("🎟 ادخال كود هدية", callback_data="user_promo"),
-        types.InlineKeyboardButton("🔗 رابط احالتي", callback_data="user_referral"),
+        types.InlineKeyboardButton("💰 رصيدي الحساب", callback_data="user_balance"),
+        types.InlineKeyboardButton("💳 طلب سحب رصيد", callback_data="user_withdraw")
+    )
+    kb.add(
+        types.InlineKeyboardButton("🎁 الهدية اليومية", callback_data="user_daily"),
+        types.InlineKeyboardButton("🏆 الهدية الأسبوعية", callback_data="user_weekly")
+    )
+    kb.add(
+        types.InlineKeyboardButton("🎟 إدخال كود هدية", callback_data="user_promo"),
+        types.InlineKeyboardButton("🔗 رابط إحالتك", callback_data="user_referral")
+    )
+    kb.add(
         types.InlineKeyboardButton("📢 قناة المبرمج", url=DEV_CHANNEL_URL),
-        types.InlineKeyboardButton("💬 التواصل مع الدعم", callback_data="user_support")
+        types.InlineKeyboardButton("💬 الدعم الفني", callback_data="user_support")
     )
     if is_admin(user_id):
-        kb.add(types.InlineKeyboardButton("⚙️ لوحة الإدارة", callback_data="admin_panel"))
+        kb.add(types.InlineKeyboardButton("⚙️ لوحة الإدارة الرئيسية", callback_data="admin_panel"))
     return kb
 
-def admin_menu_keyboard():
+# --- لوحات الإدارة المبوبة المقسمة احترافياً ---
+def admin_main_keyboard():
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        types.InlineKeyboardButton("📊 الإحصائيات العامة", callback_data="adm_stats"),
+        types.InlineKeyboardButton("🏆 سجل أعلى اللاعبين", callback_data="adm_leaderboard")
+    )
+    kb.add(
+        types.InlineKeyboardButton("👥 إدارة المستخدمين", callback_data="adm_menu_users"),
+        types.InlineKeyboardButton("🎟 الكوبونات والأرصدة", callback_data="adm_menu_codes")
+    )
+    kb.add(
+        types.InlineKeyboardButton("📢 القنوات والاشتراكات", callback_data="adm_menu_channels"),
+        types.InlineKeyboardButton("⚙️ إعدادات النظام", callback_data="adm_menu_settings")
+    )
+    kb.add(
+        types.InlineKeyboardButton("✉️ الإذاعة والتواصل", callback_data="adm_menu_messaging")
+    )
+    kb.add(types.InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="main_menu_back"))
+    return kb
+
+def admin_users_keyboard():
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
         types.InlineKeyboardButton("🔍 تفاصيل عميل", callback_data="adm_user_info"),
-        types.InlineKeyboardButton("➕ إضافة أدمن", callback_data="adm_add_admin"),
-        types.InlineKeyboardButton("📢 إضافة قناة اشتراك", callback_data="adm_add_channel"),
-        types.InlineKeyboardButton("🎟 توليد كود هدية", callback_data="adm_gen_code"),
-        types.InlineKeyboardButton("❌ إلغاء كود", callback_data="adm_del_code"),
-        types.InlineKeyboardButton("🔄 تصفير الأرصدة", callback_data="adm_reset_balances"),
-        types.InlineKeyboardButton("🛠 وضع الصيانة", callback_data="adm_toggle_maint"),
-        types.InlineKeyboardButton("✉️ رسالة خاصة", callback_data="adm_private_msg"),
-        types.InlineKeyboardButton("📢 رسالة جماعية", callback_data="adm_broadcast"),
-        types.InlineKeyboardButton("⚙️ إعدادات الأسعار والحدود", callback_data="adm_settings_config"),
-        types.InlineKeyboardButton("🚫 حظر/إلغاء حظر", callback_data="adm_ban_user"),
-        types.InlineKeyboardButton("📊 إحصائيات", callback_data="adm_stats"),
-        types.InlineKeyboardButton("🏆 سجل اللاعبين", callback_data="adm_leaderboard")
+        types.InlineKeyboardButton("🚫 حظر / إلغاء حظر", callback_data="adm_ban_user")
     )
+    kb.add(
+        types.InlineKeyboardButton("➕ إضافة أدمن جديد", callback_data="adm_add_admin"),
+        types.InlineKeyboardButton("🔙 رجوع للوحة الإدارة", callback_data="admin_panel")
+    )
+    return kb
+
+def admin_codes_keyboard():
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        types.InlineKeyboardButton("🎟 توليد كود هدية", callback_data="adm_gen_code"),
+        types.InlineKeyboardButton("❌ إلغاء كود هدية", callback_data="adm_del_code")
+    )
+    kb.add(
+        types.InlineKeyboardButton("🔄 تصفير الأرصدة", callback_data="adm_reset_balances"),
+        types.InlineKeyboardButton("🔙 رجوع للوحة الإدارة", callback_data="admin_panel")
+    )
+    return kb
+
+def admin_channels_keyboard():
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        types.InlineKeyboardButton("📢 إضافة قناة إجبارية", callback_data="adm_add_channel"),
+        types.InlineKeyboardButton("📋 القنوات المضافة", callback_data="adm_list_channels")
+    )
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة الإدارة", callback_data="admin_panel"))
+    return kb
+
+def admin_settings_keyboard():
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        types.InlineKeyboardButton("🛠 وضع الصيانة", callback_data="adm_toggle_maint"),
+        types.InlineKeyboardButton("⚙️ الحدود والمكافآت", callback_data="adm_settings_config")
+    )
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة الإدارة", callback_data="admin_panel"))
+    return kb
+
+def admin_messaging_keyboard():
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.add(
+        types.InlineKeyboardButton("📢 إذاعة جماعية", callback_data="adm_broadcast"),
+        types.InlineKeyboardButton("✉️ رسالة خاصة لعميل", callback_data="adm_private_msg")
+    )
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة الإدارة", callback_data="admin_panel"))
+    return kb
+
+def back_to_main_keyboard():
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="main_menu_back"))
     return kb
 
 # ==================== المعالجة الرئيسية /start ====================
@@ -346,6 +395,11 @@ def handle_callbacks(call):
     if not user:
         return
 
+    # العودة للقائمة الرئيسية
+    if data == "main_menu_back":
+        bot.send_message(user_id, "🏠 **القائمة الرئيسية**:", reply_markup=main_menu_keyboard(user_id), parse_mode="Markdown")
+        return
+
     # التحقق من الاشتراك
     if data == "verify_sub":
         if check_sub(user_id):
@@ -391,7 +445,7 @@ def handle_callbacks(call):
 
     # --- خدمات العميل ---
     if data == "user_balance":
-        bot.send_message(user_id, f"💳 **رصيدك الحالي**: `{user['balance']}` NPS", parse_mode="Markdown")
+        bot.send_message(user_id, f"💳 **رصيدك الحالي**: `{user['balance']}` NPS", reply_markup=back_to_main_keyboard(), parse_mode="Markdown")
 
     elif data == "user_withdraw":
         cooldown = int(get_setting("withdraw_cooldown_hours"))
@@ -399,7 +453,7 @@ def handle_callbacks(call):
             last_w = datetime.datetime.strptime(user['last_withdraw'], '%Y-%m-%d %H:%M:%S')
             if (datetime.datetime.now() - last_w).total_seconds() < cooldown * 3600:
                 rem_hours = round(cooldown - (datetime.datetime.now() - last_w).total_seconds() / 3600, 1)
-                bot.send_message(user_id, f"⏳ يمكنك السحب مرة كل {cooldown} ساعة. يتبقى لك: {rem_hours} ساعة.")
+                bot.send_message(user_id, f"⏳ يمكنك السحب مرة كل {cooldown} ساعة. يتبقى لك: {rem_hours} ساعة.", reply_markup=back_to_main_keyboard())
                 return
 
         kb = types.InlineKeyboardMarkup(row_width=2)
@@ -407,6 +461,7 @@ def handle_callbacks(call):
             types.InlineKeyboardButton("سيريتل كاش", callback_data="withdraw_meth_syriatel"),
             types.InlineKeyboardButton("شام كاش", callback_data="withdraw_meth_sham")
         )
+        kb.add(types.InlineKeyboardButton("🔙 العودة", callback_data="main_menu_back"))
         bot.send_message(user_id, "اختر طريقة السحب المطلوبة:", reply_markup=kb)
 
     elif data.startswith("withdraw_meth_"):
@@ -429,7 +484,7 @@ def handle_callbacks(call):
         if user['last_daily']:
             last_d = datetime.datetime.strptime(user['last_daily'], '%Y-%m-%d %H:%M:%S')
             if (datetime.datetime.now() - last_d).total_seconds() < cooldown_hours * 3600:
-                bot.send_message(user_id, "⏳ لقد حصلت على الهدية اليومية بالفعل! عد غداً.")
+                bot.send_message(user_id, "⏳ لقد حصلت على الهدية اليومية بالفعل! عد غداً.", reply_markup=back_to_main_keyboard())
                 return
         
         reward = float(get_setting("daily_reward"))
@@ -438,14 +493,14 @@ def handle_callbacks(call):
         conn.execute("UPDATE users SET last_daily=? WHERE user_id=?", (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user_id))
         conn.commit()
         conn.close()
-        bot.send_message(user_id, f"🎁 حصلت على هديتك اليومية بقيمة **{reward} NPS**!")
+        bot.send_message(user_id, f"🎁 حصلت على هديتك اليومية بقيمة **{reward} NPS**!", reply_markup=back_to_main_keyboard())
 
     elif data == "user_weekly":
         cooldown_hours = 168
         if user['last_weekly']:
             last_w = datetime.datetime.strptime(user['last_weekly'], '%Y-%m-%d %H:%M:%S')
             if (datetime.datetime.now() - last_w).total_seconds() < cooldown_hours * 3600:
-                bot.send_message(user_id, "⏳ لقد حصلت على الهدية الأسبوعية بالفعل! عد الأسبوع القادم.")
+                bot.send_message(user_id, "⏳ لقد حصلت على الهدية الأسبوعية بالفعل! عد الأسبوع القادم.", reply_markup=back_to_main_keyboard())
                 return
         
         reward = float(get_setting("weekly_reward"))
@@ -454,14 +509,14 @@ def handle_callbacks(call):
         conn.execute("UPDATE users SET last_weekly=? WHERE user_id=?", (datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'), user_id))
         conn.commit()
         conn.close()
-        bot.send_message(user_id, f"🏆 حصلت على هديتك الأسبوعية بقيمة **{reward} NPS**!")
+        bot.send_message(user_id, f"🏆 حصلت على هديتك الأسبوعية بقيمة **{reward} NPS**!", reply_markup=back_to_main_keyboard())
 
     elif data == "user_promo":
         cooldown = int(get_setting("promo_cooldown_hours"))
         if user['last_promo']:
             last_p = datetime.datetime.strptime(user['last_promo'], '%Y-%m-%d %H:%M:%S')
             if (datetime.datetime.now() - last_p).total_seconds() < cooldown * 3600:
-                bot.send_message(user_id, f"⏳ يمكنك إدخال كود هدية كل {cooldown} ساعات مرة واحدة.")
+                bot.send_message(user_id, f"⏳ يمكنك إدخال كود هدية كل {cooldown} ساعات مرة واحدة.", reply_markup=back_to_main_keyboard())
                 return
 
         msg = bot.send_message(user_id, "🎟 أدخل كود الهدية الآن:")
@@ -477,6 +532,7 @@ def handle_callbacks(call):
             f"👥 عدد إحالاتك: **{user['referrals_count']}**\n"
             f"💰 المكافأة لكل إحالة: **{ref_reward} NPS**\n"
             f"⚠️ يتم احتساب الإحالة فقط بعد تخطي اختبار الأمان برقم سوري.",
+            reply_markup=back_to_main_keyboard(),
             parse_mode="Markdown"
         )
 
@@ -484,16 +540,31 @@ def handle_callbacks(call):
         msg = bot.send_message(user_id, "💬 اكتب رسالتك للدعم الفني وسيتم الرد عليك في أقرب وقت:")
         bot.register_next_step_handler(msg, process_support_msg)
 
-    # --- لوحة الإدارة ---
+    # --- لوحة الإدارة المبوبة احترافياً ---
     elif data == "admin_panel" and is_admin(user_id):
-        bot.send_message(user_id, "🛠 **لوحة التحكم بالبوت**:", reply_markup=admin_menu_keyboard(), parse_mode="Markdown")
+        bot.send_message(user_id, "🛠 **لوحة التحكم الرئيسية بالبوت**:", reply_markup=admin_main_keyboard(), parse_mode="Markdown")
+
+    elif data == "adm_menu_users" and is_admin(user_id):
+        bot.send_message(user_id, "👥 **إدارة المستخدمين والأدمنية**:", reply_markup=admin_users_keyboard(), parse_mode="Markdown")
+
+    elif data == "adm_menu_codes" and is_admin(user_id):
+        bot.send_message(user_id, "🎟 **إدارة أكواد الهدايا والأرصدة**:", reply_markup=admin_codes_keyboard(), parse_mode="Markdown")
+
+    elif data == "adm_menu_channels" and is_admin(user_id):
+        bot.send_message(user_id, "📢 **إدارة الاشتراك الإجباري والقنوات**:", reply_markup=admin_channels_keyboard(), parse_mode="Markdown")
+
+    elif data == "adm_menu_settings" and is_admin(user_id):
+        bot.send_message(user_id, "⚙️ **إعدادات النظام والصيانة**:", reply_markup=admin_settings_keyboard(), parse_mode="Markdown")
+
+    elif data == "adm_menu_messaging" and is_admin(user_id):
+        bot.send_message(user_id, "✉️ **قسم الإذاعة والرسائل العامة**:", reply_markup=admin_messaging_keyboard(), parse_mode="Markdown")
 
     elif data == "adm_stats" and is_admin(user_id):
         conn = get_db()
         total_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         total_balance = conn.execute("SELECT SUM(balance) FROM users").fetchone()[0] or 0
         conn.close()
-        bot.send_message(user_id, f"📊 **إحصائيات البوت**:\n\n👥 عدد المستخدمين: `{total_users}`\n💰 إجمالي الأرصدة: `{total_balance}` NPS", parse_mode="Markdown")
+        bot.send_message(user_id, f"📊 **إحصائيات البوت**:\n\n👥 عدد المستخدمين: `{total_users}`\n💰 إجمالي الأرصدة: `{total_balance}` NPS", reply_markup=admin_main_keyboard(), parse_mode="Markdown")
 
     elif data == "adm_user_info" and is_admin(user_id):
         msg = bot.send_message(user_id, "أدخل ID العميل المراد عرض تفاصيله:")
@@ -506,6 +577,18 @@ def handle_callbacks(call):
     elif data == "adm_add_channel" and is_admin(user_id):
         msg = bot.send_message(user_id, "أدخل معرف القناة ورابطها بالنمط التالي:\n`@channel_username https://t.me/channel_url`")
         bot.register_next_step_handler(msg, process_adm_add_channel)
+
+    elif data == "adm_list_channels" and is_admin(user_id):
+        conn = get_db()
+        chans = conn.execute("SELECT * FROM channels").fetchall()
+        conn.close()
+        if not chans:
+            bot.send_message(user_id, "❌ لا يوجد قنوات مضافة حالياً.", reply_markup=admin_channels_keyboard())
+        else:
+            txt = "📋 **القنوات الإجبارية المضافة**:\n\n"
+            for c in chans:
+                txt += f"• `{c['channel_id']}` -> {c['url']}\n"
+            bot.send_message(user_id, txt, reply_markup=admin_channels_keyboard(), parse_mode="Markdown")
 
     elif data == "adm_gen_code" and is_admin(user_id):
         msg = bot.send_message(user_id, "أدخل بيانات الكود بالشكل التالي:\n`اسم_الكود القيمة عدد_الاستخدامات`\nمثال: `FREE50 10 100`")
@@ -520,14 +603,14 @@ def handle_callbacks(call):
         conn.execute("UPDATE users SET balance = 0")
         conn.commit()
         conn.close()
-        bot.send_message(user_id, "✅ تم تصفير جميع أرصدة المستخدمين بنجاح.")
+        bot.send_message(user_id, "✅ تم تصفير جميع أرصدة المستخدمين بنجاح.", reply_markup=admin_codes_keyboard())
 
     elif data == "adm_toggle_maint" and is_admin(user_id):
         curr = get_setting("maintenance_mode")
         new_val = "1" if curr == "0" else "0"
         set_setting("maintenance_mode", new_val)
         status = "مفعل 🛠" if new_val == "1" else "معطل ✅"
-        bot.send_message(user_id, f"تم تغيير وضع الصيانة إلى: **{status}**")
+        bot.send_message(user_id, f"تم تغيير وضع الصيانة إلى: **{status}**", reply_markup=admin_settings_keyboard())
 
     elif data == "adm_private_msg" and is_admin(user_id):
         msg = bot.send_message(user_id, "أدخل ID المستخدم ثم النص بالنمط التالي:\n`user_id الرسالة`")
@@ -559,7 +642,7 @@ def handle_callbacks(call):
         text = "🏆 **سجل أعلى اللاعبين رصيداً وإحالات**:\n\n"
         for idx, u in enumerate(top_users, 1):
             text += f"{idx}. {u['first_name']} (`{u['user_id']}`)\n   💰 الرصيد: `{u['balance']}` | 👥 الإحالات: `{u['referrals_count']}`\n"
-        bot.send_message(user_id, text, parse_mode="Markdown")
+        bot.send_message(user_id, text, reply_markup=admin_main_keyboard(), parse_mode="Markdown")
 
     elif data.startswith("reply_supp_") and is_admin(user_id):
         target_uid = data.split("_")[2]
@@ -574,18 +657,18 @@ def process_withdraw_amount(message, m_key, min_w, max_w):
         user = get_user(user_id)
         
         if amount < min_w or amount > max_w:
-            bot.send_message(user_id, f"❌ المبلغ خارج الحدود المسموحة ({min_w} - {max_w}). تم إلغاء العملية.")
+            bot.send_message(user_id, f"❌ المبلغ خارج الحدود المسموحة ({min_w} - {max_w}). تم إلغاء العملية.", reply_markup=back_to_main_keyboard())
             return
 
         if user['balance'] < amount:
-            bot.send_message(user_id, "❌ رصيدك الحالي غير كافٍ إجراء هذه العملية.")
+            bot.send_message(user_id, "❌ رصيدك الحالي غير كافٍ إجراء هذه العملية.", reply_markup=back_to_main_keyboard())
             return
 
         msg = bot.send_message(user_id, "أدخل رقم الحساب/الهاتف لتحويل الرصيد عليه:")
         bot.register_next_step_handler(msg, process_withdraw_account, amount)
 
     except ValueError:
-        bot.send_message(user_id, "❌ قيمة غير صالحة. تم إلغاء السحب.")
+        bot.send_message(user_id, "❌ قيمة غير صالحة. تم إلغاء السحب.", reply_markup=back_to_main_keyboard())
 
 def process_withdraw_account(message, amount):
     user_id = message.from_user.id
@@ -598,7 +681,7 @@ def process_withdraw_account(message, amount):
     conn.commit()
     conn.close()
 
-    bot.send_message(user_id, "✅ تم إرسال طلب السحب بنجاح للمراجعة!")
+    bot.send_message(user_id, "✅ تم إرسال طلب السحب بنجاح للمراجعة!", reply_markup=back_to_main_keyboard())
     bot.send_message(
         SUPER_ADMIN_ID,
         f"🚨 **طلب سحب جديد**:\nالمستخدم: `{user_id}`\nالمبلغ: `{amount}` NPS\nالحساب: `{acc_num}`",
@@ -613,7 +696,7 @@ def process_promo_code(message):
     code = conn.execute("SELECT * FROM promo_codes WHERE code=? AND is_active=1", (code_text,)).fetchone()
     
     if not code or code['current_uses'] >= code['max_uses']:
-        bot.send_message(user_id, "❌ الكود غير صحيح أو انتهت صلاحيته.")
+        bot.send_message(user_id, "❌ الكود غير صحيح أو انتهت صلاحيته.", reply_markup=back_to_main_keyboard())
         conn.close()
         return
 
@@ -624,7 +707,7 @@ def process_promo_code(message):
     conn.close()
 
     update_balance(user_id, reward)
-    bot.send_message(user_id, f"🎉 تم تفعيل الكود بنجاح! حصلت على **{reward} NPS**")
+    bot.send_message(user_id, f"🎉 تم تفعيل الكود بنجاح! حصلت على **{reward} NPS**", reply_markup=back_to_main_keyboard())
     bot.send_message(SUPER_ADMIN_ID, f"🔔 المستخدم `{user_id}` استخدم الكود `{code_text}`")
 
 def process_support_msg(message):
@@ -633,14 +716,14 @@ def process_support_msg(message):
     kb.add(types.InlineKeyboardButton("رد على العميل", callback_data=f"reply_supp_{user_id}"))
     
     bot.send_message(SUPER_ADMIN_ID, f"📩 **رسالة دعم من** `{user_id}`:\n\n{message.text}", reply_markup=kb, parse_mode="Markdown")
-    bot.send_message(user_id, "✅ تم إرسال رسالتك لفريق الدعم.")
+    bot.send_message(user_id, "✅ تم إرسال رسالتك لفريق الدعم.", reply_markup=back_to_main_keyboard())
 
 def process_reply_support(message, target_uid):
     try:
         bot.send_message(target_uid, f"💬 **رد من فريق الدعم**:\n\n{message.text}")
-        bot.send_message(message.chat.id, "✅ تم إرسال الرد بنجاح.")
+        bot.send_message(message.chat.id, "✅ تم إرسال الرد بنجاح.", reply_markup=admin_messaging_keyboard())
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ فشل الإرسال: {e}")
+        bot.send_message(message.chat.id, f"❌ فشل الإرسال: {e}", reply_markup=admin_messaging_keyboard())
 
 def process_gen_code(message):
     try:
@@ -652,16 +735,16 @@ def process_gen_code(message):
         conn.commit()
         conn.close()
         
-        bot.send_message(message.chat.id, f"✅ تم إنشاء الكود `{code}` بنجاح!", parse_mode="Markdown")
+        bot.send_message(message.chat.id, f"✅ تم إنشاء الكود `{code}` بنجاح!", reply_markup=admin_codes_keyboard(), parse_mode="Markdown")
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ حدث خطأ بتنسيق البيانات: {e}")
+        bot.send_message(message.chat.id, f"❌ حدث خطأ بتنسيق البيانات: {e}", reply_markup=admin_codes_keyboard())
 
 def process_adm_user_info(message):
     try:
         uid = int(message.text.strip())
         u = get_user(uid)
         if not u:
-            bot.send_message(message.chat.id, "❌ المستخدم غير موجود بالبيانات.")
+            bot.send_message(message.chat.id, "❌ المستخدم غير موجود بالبيانات.", reply_markup=admin_users_keyboard())
             return
         
         text = (
@@ -674,9 +757,9 @@ def process_adm_user_info(message):
             f"مرات السحب: `{u['withdrawals_count']}`\n"
             f"المُحيل: `{u['referred_by']}`"
         )
-        bot.send_message(message.chat.id, text, parse_mode="Markdown")
+        bot.send_message(message.chat.id, text, reply_markup=admin_users_keyboard(), parse_mode="Markdown")
     except Exception:
-        bot.send_message(message.chat.id, "❌ خطأ في إدخال ID.")
+        bot.send_message(message.chat.id, "❌ خطأ في إدخال ID.", reply_markup=admin_users_keyboard())
 
 def process_adm_add_admin(message):
     try:
@@ -685,9 +768,9 @@ def process_adm_add_admin(message):
         conn.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (uid,))
         conn.commit()
         conn.close()
-        bot.send_message(message.chat.id, f"✅ تم إسناد صلاحيات الأدمن لـ `{uid}` بنجاح.")
+        bot.send_message(message.chat.id, f"✅ تم إسناد صلاحيات الأدمن لـ `{uid}` بنجاح.", reply_markup=admin_users_keyboard())
     except Exception:
-        bot.send_message(message.chat.id, "❌ خطأ في إدخال ID.")
+        bot.send_message(message.chat.id, "❌ خطأ في إدخال ID.", reply_markup=admin_users_keyboard())
 
 def process_adm_add_channel(message):
     try:
@@ -697,9 +780,9 @@ def process_adm_add_channel(message):
         conn.execute("INSERT OR REPLACE INTO channels (channel_id, url) VALUES (?, ?)", (ch_id, ch_url))
         conn.commit()
         conn.close()
-        bot.send_message(message.chat.id, f"✅ تم إضافة القناة `{ch_id}` بنجاح.")
+        bot.send_message(message.chat.id, f"✅ تم إضافة القناة `{ch_id}` بنجاح.", reply_markup=admin_channels_keyboard())
     except Exception:
-        bot.send_message(message.chat.id, "❌ خطأ بالتنسيق.")
+        bot.send_message(message.chat.id, "❌ خطأ بالتنسيق.", reply_markup=admin_channels_keyboard())
 
 def process_adm_del_code(message):
     code_text = message.text.strip()
@@ -707,16 +790,16 @@ def process_adm_del_code(message):
     conn.execute("UPDATE promo_codes SET is_active=0 WHERE code=?", (code_text,))
     conn.commit()
     conn.close()
-    bot.send_message(message.chat.id, f"✅ تم إلغاء الكود `{code_text}`.")
+    bot.send_message(message.chat.id, f"✅ تم إلغاء الكود `{code_text}`.", reply_markup=admin_codes_keyboard())
 
 def process_adm_private_msg(message):
     try:
         parts = message.text.split(maxsplit=1)
         uid, txt = int(parts[0]), parts[1]
         bot.send_message(uid, f"📩 **رسالة خاصة من الإدارة**:\n\n{txt}")
-        bot.send_message(message.chat.id, "✅ تم الإرسال بنجاح.")
+        bot.send_message(message.chat.id, "✅ تم الإرسال بنجاح.", reply_markup=admin_messaging_keyboard())
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ حدث خطأ: {e}")
+        bot.send_message(message.chat.id, f"❌ حدث خطأ: {e}", reply_markup=admin_messaging_keyboard())
 
 def process_adm_broadcast(message):
     txt = message.text
@@ -731,23 +814,23 @@ def process_adm_broadcast(message):
             count += 1
         except Exception:
             pass
-    bot.send_message(message.chat.id, f"✅ تم إرسال الإذاعة إلى `{count}` مستخدم.")
+    bot.send_message(message.chat.id, f"✅ تم إرسال الإذاعة إلى `{count}` مستخدم.", reply_markup=admin_messaging_keyboard())
 
 def process_adm_set_config(message):
     try:
         parts = message.text.split()
         k, v = parts[0], parts[1]
         set_setting(k, v)
-        bot.send_message(message.chat.id, f"✅ تم ضبط `{k}` على القيمة `{v}`.")
+        bot.send_message(message.chat.id, f"✅ تم ضبط `{k}` على القيمة `{v}`.", reply_markup=admin_settings_keyboard())
     except Exception:
-        bot.send_message(message.chat.id, "❌ خطأ في التنسيق.")
+        bot.send_message(message.chat.id, "❌ خطأ في التنسيق.", reply_markup=admin_settings_keyboard())
 
 def process_adm_ban_user(message):
     try:
         uid = int(message.text.strip())
         u = get_user(uid)
         if not u:
-            bot.send_message(message.chat.id, "❌ المستخدم غير موجود.")
+            bot.send_message(message.chat.id, "❌ المستخدم غير موجود.", reply_markup=admin_users_keyboard())
             return
         new_ban = 0 if u['is_banned'] else 1
         conn = get_db()
@@ -755,9 +838,9 @@ def process_adm_ban_user(message):
         conn.commit()
         conn.close()
         st = "حظر" if new_ban else "إلغاء حظر"
-        bot.send_message(message.chat.id, f"✅ تم {st} المستخدم `{uid}`.")
+        bot.send_message(message.chat.id, f"✅ تم {st} المستخدم `{uid}`.", reply_markup=admin_users_keyboard())
     except Exception:
-        bot.send_message(message.chat.id, "❌ خطأ في ID.")
+        bot.send_message(message.chat.id, "❌ خطأ في ID.", reply_markup=admin_users_keyboard())
 
 # ==================== نظام الإخصام عند مغادرة القنوات ====================
 @bot.chat_member_handler()
@@ -787,9 +870,5 @@ def auto_reaction_handler(message):
 
 # ==================== تشغيل التطبيق ====================
 if __name__ == "__main__":
-    flask_thread = Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-
-    print("Bot starting polling...")
+    print("🤖 Bot is starting direct polling...")
     bot.infinity_polling(skip_pending=True, allowed_updates=telebot.util.update_types)
