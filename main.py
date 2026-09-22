@@ -16,6 +16,19 @@ DEV_CHANNEL_USERNAME = "lerafree"
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 
+# أسماء الإعدادات باللغة العربية للوحة التحكم
+CONFIG_LABELS = {
+    "min_withdraw_syriatel": "الحد الأدنى لسحب سيريتل كاش",
+    "max_withdraw_syriatel": "الحد الأقصى لسحب سيريتل كاش",
+    "min_withdraw_sham": "الحد الأدنى لسحب شام كاش",
+    "max_withdraw_sham": "الحد الأقصى لسحب شام كاش",
+    "withdraw_cooldown_hours": "مدة انتظار السحب (بالساعات)",
+    "promo_cooldown_hours": "مدة انتظار الأكواد (بالساعات)",
+    "ref_reward": "مكافأة الإحالة",
+    "daily_reward": "مكافأة الهدية اليومية",
+    "weekly_reward": "مكافأة الهدية الأسبوعية"
+}
+
 # ==================== سيرفر وهمي مستقل وفارغ تماماً (بدون قاعدة بيانات) ====================
 class DummyHealthCheckServer(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -103,13 +116,20 @@ def init_db():
         )
     ''')
     
-    # جدول القنوات الإجبارية
+    # جدول القنوات الإجبارية (محدث ليشمل الاسم)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS channels (
             channel_id TEXT PRIMARY KEY,
+            name TEXT,
             url TEXT
         )
     ''')
+    
+    # تحديث الهيكل للقواعد القديمة تلقائياً دون فقدان بيانات
+    try:
+        cursor.execute("ALTER TABLE channels ADD COLUMN name TEXT")
+    except sqlite3.OperationalError:
+        pass
     
     conn.commit()
     conn.close()
@@ -176,8 +196,23 @@ def check_sub(user_id):
             if member.status in ['left', 'kicked']:
                 return False
         except Exception:
-            continue
+            return False
     return True
+
+def send_force_sub_msg(user_id):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("📢 قناة المبرمج (إجباري)", url=DEV_CHANNEL_URL))
+    
+    conn = get_db()
+    channels = conn.execute("SELECT * FROM channels").fetchall()
+    conn.close()
+    
+    for ch in channels:
+        ch_title = ch['name'] if ch['name'] else f"قناة: {ch['channel_id']}"
+        kb.add(types.InlineKeyboardButton(f"📢 {ch_title}", url=ch['url']))
+        
+    kb.add(types.InlineKeyboardButton("✅ تحقق من الاشتراك الأن", callback_data="verify_sub"))
+    bot.send_message(user_id, "⚠️ **يجب عليك الاشتراك في جميع القنوات التالية لاستخدام البوت:**", reply_markup=kb, parse_mode="Markdown")
 
 # ==================== القوائم والأزرار ====================
 def main_menu_keyboard(user_id):
@@ -199,7 +234,7 @@ def main_menu_keyboard(user_id):
         types.InlineKeyboardButton("💬 التواصل مع الدعم", callback_data="user_support")
     )
     if is_admin(user_id):
-        kb.add(types.InlineKeyboardButton("⚙️ لوحة الإدارة احترافية", callback_data="admin_panel"))
+        kb.add(types.InlineKeyboardButton("⚙️ لوحة الإدارة الاحترافية", callback_data="admin_panel"))
     return kb
 
 def admin_menu_keyboard():
@@ -207,26 +242,26 @@ def admin_menu_keyboard():
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
         types.InlineKeyboardButton("👥 إدارة المستخدمين", callback_data="adm_users_menu"),
-        types.InlineKeyboardButton("⚙️ إعدادات الأسعار", callback_data="adm_settings_menu")
+        types.InlineKeyboardButton("⚙️ إعدادات الأسعار والحدود", callback_data="adm_settings_menu")
     )
     kb.add(
-        types.InlineKeyboardButton("📢 إدارة القنوات", callback_data="adm_channels_menu"),
-        types.InlineKeyboardButton("🎟 إدارة الأكواد", callback_data="adm_promo_menu")
+        types.InlineKeyboardButton("📢 إدارة القنوات الإجبارية", callback_data="adm_channels_menu"),
+        types.InlineKeyboardButton("🎟 إدارة الأكواد والخصومات", callback_data="adm_promo_menu")
     )
     kb.add(
         types.InlineKeyboardButton("✉️ إرسال رسالة خاصة", callback_data="adm_private_msg"),
         types.InlineKeyboardButton("📢 إذاعة جماعية", callback_data="adm_broadcast")
     )
     kb.add(
-        types.InlineKeyboardButton(f"🛠 الصيانة: {maint_status}", callback_data="adm_toggle_maint_fast"),
-        types.InlineKeyboardButton("📊 الإحصائيات", callback_data="adm_stats")
+        types.InlineKeyboardButton(f"🛠 وضع الصيانة: {maint_status}", callback_data="adm_toggle_maint_fast"),
+        types.InlineKeyboardButton("📊 الإحصائيات الشاملة", callback_data="adm_stats")
     )
     kb.add(
-        types.InlineKeyboardButton("🏆 سجل اللاعبين", callback_data="adm_leaderboard"),
-        types.InlineKeyboardButton("🔄 تصفير الأرصدة", callback_data="adm_reset_balances")
+        types.InlineKeyboardButton("🏆 سجل اللاعبين المميزين", callback_data="adm_leaderboard"),
+        types.InlineKeyboardButton("🔄 تصفير كافة الأرصدة", callback_data="adm_reset_balances")
     )
     kb.add(
-        types.InlineKeyboardButton("➕ إضافة أدمن", callback_data="adm_add_admin"),
+        types.InlineKeyboardButton("➕ إضافة أدمن جديد", callback_data="adm_add_admin"),
         types.InlineKeyboardButton("🔙 العودة للمنيو الرئيسي", callback_data="user_main_menu")
     )
     return kb
@@ -234,10 +269,10 @@ def admin_menu_keyboard():
 def admin_users_menu_keyboard():
     kb = types.InlineKeyboardMarkup(row_width=2)
     kb.add(
-        types.InlineKeyboardButton("🔍 تفاصيل عميل", callback_data="adm_user_info"),
-        types.InlineKeyboardButton("🚫 حظر / إلغاء حظر", callback_data="adm_ban_user")
+        types.InlineKeyboardButton("🔍 عرض تفاصيل عميل", callback_data="adm_user_info"),
+        types.InlineKeyboardButton("🚫 حظر / إلغاء حظر عميل", callback_data="adm_ban_user")
     )
-    kb.add(types.InlineKeyboardButton("🔙 رجوع للإدارة", callback_data="admin_panel"))
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة الإدارة", callback_data="admin_panel"))
     return kb
 
 def admin_settings_menu_keyboard():
@@ -260,7 +295,7 @@ def admin_settings_menu_keyboard():
     )
     kb.add(
         types.InlineKeyboardButton("الهدية الأسبوعية", callback_data="set_cfg_weekly_reward"),
-        types.InlineKeyboardButton("🔙 رجوع للإدارة", callback_data="admin_panel")
+        types.InlineKeyboardButton("🔙 رجوع للوحة الإدارة", callback_data="admin_panel")
     )
     return kb
 
@@ -271,10 +306,11 @@ def admin_channels_menu_keyboard():
     conn.close()
     
     for ch in channels:
-        kb.add(types.InlineKeyboardButton(f"❌ حذف القناة: {ch['channel_id']}", callback_data=f"adm_del_chan_{ch['channel_id']}"))
+        name_disp = ch['name'] if ch['name'] else ch['channel_id']
+        kb.add(types.InlineKeyboardButton(f"❌ حذف القناة: {name_disp}", callback_data=f"adm_del_chan_{ch['channel_id']}"))
         
     kb.add(types.InlineKeyboardButton("➕ إضافة قناة جديدة", callback_data="adm_add_channel"))
-    kb.add(types.InlineKeyboardButton("🔙 رجوع للإدارة", callback_data="admin_panel"))
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة الإدارة", callback_data="admin_panel"))
     return kb
 
 def admin_promo_menu_keyboard():
@@ -287,24 +323,10 @@ def admin_promo_menu_keyboard():
         kb.add(types.InlineKeyboardButton(f"❌ إلغاء الكود: {c['code']} ({c['reward']} NPS)", callback_data=f"adm_del_code_fast_{c['code']}"))
         
     kb.add(types.InlineKeyboardButton("➕ توليد كود جديد", callback_data="adm_gen_code"))
-    kb.add(types.InlineKeyboardButton("🔙 رجوع للإدارة", callback_data="admin_panel"))
+    kb.add(types.InlineKeyboardButton("🔙 رجوع للوحة الإدارة", callback_data="admin_panel"))
     return kb
 
-# ==================== اختبار الكابتشا والقنوات ====================
-def send_force_sub_msg(user_id):
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton("📢 قناة المبرمج (إجباري)", url=DEV_CHANNEL_URL))
-    
-    conn = get_db()
-    channels = conn.execute("SELECT url FROM channels").fetchall()
-    conn.close()
-    
-    for ch in channels:
-        kb.add(types.InlineKeyboardButton("📢 قناة إضافية", url=ch['url']))
-        
-    kb.add(types.InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="verify_sub"))
-    bot.send_message(user_id, "⚠️ **يجب عليك الاشتراك في القنوات التالية لاستخدام البوت:**", reply_markup=kb, parse_mode="Markdown")
-
+# ==================== اختبار الكابتشا ====================
 FRUITS = {'🍎': 'تفاح', '🍌': 'موز', '🍇': 'عنب', '🍊': 'برتقال'}
 
 def send_fruit_captcha(user_id):
@@ -352,14 +374,14 @@ def start_cmd(message):
         bot.send_message(user_id, "❌ أنت محظور من استخدام البوت.")
         return
 
-    # إشعار للمُحيل عند دخول لاعب جديد عبر رابط الإحالة وقبل اجتيازه الاختبار
+    # إشعار للمُحيل عند دخول لاعب جديد
     if is_new and ref_by:
         try:
             bot.send_message(ref_by, f"🔔 **إشعار دخول**: انضم شخص جديد عن طريق رابطك (`{user_id}`)، ولم يجتاز اختبار الأمان بعد!", parse_mode="Markdown")
         except Exception:
             pass
 
-    # --- تسلسل أمان تلقائي متتابع (واحدة تلو الأخرى) ---
+    # --- تسلسل أمان تلقائي متتابع ---
     # الخطوة 1: التأكد من رقم الهاتف
     if not user['phone']:
         kb = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
@@ -376,7 +398,7 @@ def start_cmd(message):
         send_fruit_captcha(user_id)
         return
 
-    # الخطوة 3: التأكد من القنوات الإجبارية
+    # الخطوة 3: التحقق الصارم من جميع القنوات الإجبارية (القديمة والحديثة)
     if not check_sub(user_id):
         send_force_sub_msg(user_id)
         return
@@ -414,8 +436,6 @@ def handle_contact(message):
     conn.close()
 
     bot.send_message(user_id, "✅ تم إثبات رقم الهاتف بنجاح!", reply_markup=types.ReplyKeyboardRemove())
-    
-    # التتابع التلقائي للخطوة التالية (الكابتشا)
     send_fruit_captcha(user_id)
 
 # ==================== معالجة أزرار Inline Callbacks ====================
@@ -433,12 +453,19 @@ def handle_callbacks(call):
     if not user:
         return
 
+    # زر التحقق من الاشتراك بالقنوات
     if data == "verify_sub":
         if check_sub(user_id):
-            bot.send_message(user_id, "✅ تم التحقق من الاشتراك بنجاح!")
+            bot.send_message(user_id, "✅ تم التحقق من الاشتراك في جميع القنوات بنجاح!")
             start_cmd(call.message)
         else:
-            bot.send_message(user_id, "❌ لم تشترك في جميع القنوات بعد!")
+            bot.send_message(user_id, "❌ لم تشترك بعد في جميع القنوات المطلوبة! يرجى الاشتراك ثم الضغط مجدداً.")
+            send_force_sub_msg(user_id)
+        return
+
+    # التحقق الصارم من الاشتراك في كافة الأزرار للمستخدمين القدامى والجدد
+    if not is_admin(user_id) and not check_sub(user_id):
+        send_force_sub_msg(user_id)
         return
 
     if data.startswith("captcha_correct_"):
@@ -457,7 +484,6 @@ def handle_callbacks(call):
             conn.execute("UPDATE users SET balance = balance + ?, referrals_count = referrals_count + 1 WHERE user_id=?", (ref_reward, ref_id))
             conn.commit()
             try:
-                # إشعار اجتياز صديقك الاختبار وتلقي المكافأة
                 bot.send_message(ref_id, f"🎉 **مبروك!** اجتاز صديقك الاختبار وحصلت على **{ref_reward} NPS**!", parse_mode="Markdown")
                 bot.send_message(SUPER_ADMIN_ID, f"🔔 **إشعار إحالة مكتملة**:\nالمستخدم: `{user_id}`\nعن طريق: `{ref_id}`", parse_mode="Markdown")
             except Exception:
@@ -468,7 +494,6 @@ def handle_callbacks(call):
         conn.close()
         bot.send_message(user_id, "✅ تم تخطي اختبار الأمان بنجاح!")
         
-        # التتابع التلقائي للخطوة التالية (التحقق من الاشتراك ثم المنيو الرئيسي)
         if not check_sub(user_id):
             send_force_sub_msg(user_id)
         else:
@@ -523,7 +548,7 @@ def handle_callbacks(call):
         if user['last_daily']:
             last_d = datetime.datetime.strptime(user['last_daily'], '%Y-%m-%d %H:%M:%S')
             if (datetime.datetime.now() - last_d).total_seconds() < cooldown_hours * 3600:
-                bot.send_message(user_id, "⏳ لقدحصلت على الهدية اليومية بالفعل! عد غداً.")
+                bot.send_message(user_id, "⏳ لقد حصلت على الهدية اليومية بالفعل! عد غداً.")
                 return
         
         reward = float(get_setting("daily_reward"))
@@ -578,34 +603,35 @@ def handle_callbacks(call):
         msg = bot.send_message(user_id, "💬 اكتب رسالتك للدعم الفني وسيتم الرد عليك في أقرب وقت:")
         bot.register_next_step_handler(msg, process_support_msg)
 
-    # --- لوحة الإدارة التفاعلية ---
+    # --- لوحة الإدارة التفاعلية المفهومة بالكامل ---
     elif is_admin(user_id):
         if data == "admin_panel":
-            bot.edit_message_text("🛠 **لوحة التحكم بالبوت الرئيسية**:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_menu_keyboard(), parse_mode="Markdown")
+            bot.edit_message_text("🛠 **لوحة التحكم الرئيسية بالإدارة**:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_menu_keyboard(), parse_mode="Markdown")
 
         elif data == "adm_users_menu":
-            bot.edit_message_text("👥 **قسم إدارة المستخدمين**:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_users_menu_keyboard(), parse_mode="Markdown")
+            bot.edit_message_text("👥 **قسم إدارة واستعلامات المستخدمين**:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_users_menu_keyboard(), parse_mode="Markdown")
 
         elif data == "adm_settings_menu":
-            bot.edit_message_text("⚙️ **تعديل أسعار وحدود النظام**:\nاختر العنصر المراد تعديله:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_settings_menu_keyboard(), parse_mode="Markdown")
+            bot.edit_message_text("⚙️ **إعدادات الأسعار والحدود بالكامل**:\nاختر العنصر المراد تعديل قيمته مباشرة:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_settings_menu_keyboard(), parse_mode="Markdown")
 
         elif data == "adm_channels_menu":
             bot.edit_message_text("📢 **قسم إدارة القنوات الإجبارية**:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_channels_menu_keyboard(), parse_mode="Markdown")
 
         elif data == "adm_promo_menu":
-            bot.edit_message_text("🎟 **قسم إدارة الأكواد**:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_promo_menu_keyboard(), parse_mode="Markdown")
+            bot.edit_message_text("🎟 **قسم إدارة أكواد الهدية**:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_promo_menu_keyboard(), parse_mode="Markdown")
 
         elif data == "adm_toggle_maint_fast":
             curr = get_setting("maintenance_mode")
             new_val = "1" if curr == "0" else "0"
             set_setting("maintenance_mode", new_val)
-            bot.edit_message_text("🛠 **لوحة التحكم بالبوت الرئيسية**:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_menu_keyboard(), parse_mode="Markdown")
+            bot.edit_message_text("🛠 **لوحة التحكم الرئيسية بالإدارة**:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_menu_keyboard(), parse_mode="Markdown")
 
         elif data.startswith("set_cfg_"):
             cfg_key = data.replace("set_cfg_", "")
             curr_val = get_setting(cfg_key)
-            msg = bot.send_message(user_id, f"القيمة الحالية لـ `{cfg_key}` هي: `{curr_val}`\nأدخل القيمة الجديدة الآن:", parse_mode="Markdown")
-            bot.register_next_step_handler(msg, process_single_setting_update, cfg_key)
+            label_name = CONFIG_LABELS.get(cfg_key, cfg_key)
+            msg = bot.send_message(user_id, f"📌 **تعديل {label_name}**\nالقيمة الحالية هي: `{curr_val}`\n\nأدخل القيمة الجديدة الآن:", parse_mode="Markdown")
+            bot.register_next_step_handler(msg, process_single_setting_update, cfg_key, label_name)
 
         elif data.startswith("adm_del_chan_"):
             ch_id = data.replace("adm_del_chan_", "")
@@ -621,26 +647,31 @@ def handle_callbacks(call):
             conn.execute("UPDATE promo_codes SET is_active=0 WHERE code=?", (code_text,))
             conn.commit()
             conn.close()
-            bot.edit_message_text("🎟 **قسم إدارة الأكواد**:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_promo_menu_keyboard(), parse_mode="Markdown")
+            bot.edit_message_text("🎟 **قسم إدارة الأكواد والخصومات**:", chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=admin_promo_menu_keyboard(), parse_mode="Markdown")
 
         elif data == "adm_stats":
             conn = get_db()
             total_users = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
             total_balance = conn.execute("SELECT SUM(balance) FROM users").fetchone()[0] or 0
             conn.close()
-            bot.send_message(user_id, f"📊 **إحصائيات البوت**:\n\n👥 عدد المستخدمين: `{total_users}`\n💰 إجمالي الأرصدة: `{total_balance}` NPS", parse_mode="Markdown")
+            bot.send_message(user_id, f"📊 **إحصائيات البوت الشاملة**:\n\n👥 عدد المستخدمين: `{total_users}`\n💰 إجمالي الأرصدة: `{total_balance}` NPS", parse_mode="Markdown")
 
         elif data == "adm_user_info":
-            msg = bot.send_message(user_id, "أدخل ID العميل المراد عرض تفاصيله:")
+            msg = bot.send_message(user_id, "أدخل ID العميل المراد عرض تفاصيله الكاملة:")
             bot.register_next_step_handler(msg, process_adm_user_info)
 
         elif data == "adm_add_admin":
-            msg = bot.send_message(user_id, "أدخل ID الأدمن الجديد:")
+            msg = bot.send_message(user_id, "أدخل ID الأدمن الجديد لمنحه كافة الصلاحيات:")
             bot.register_next_step_handler(msg, process_adm_add_admin)
 
+        # التطوير الجوهري للبدء في إضافة قناة خطوة بخطوة
         elif data == "adm_add_channel":
-            msg = bot.send_message(user_id, "أدخل معرف القناة ورابطها بالنمط التالي:\n`@channel_username https://t.me/channel_url`", parse_mode="Markdown")
-            bot.register_next_step_handler(msg, process_adm_add_channel)
+            msg = bot.send_message(
+                user_id,
+                "1️⃣ **الخطوة الأولى**: أرسل **معرف القناة** أو الـ ID الخاص بها:\n(مثال: `@mychannel` أو `-100123456789`)",
+                parse_mode="Markdown"
+            )
+            bot.register_next_step_handler(msg, process_adm_add_channel_step1)
 
         elif data == "adm_gen_code":
             msg = bot.send_message(user_id, "أدخل بيانات الكود بالشكل التالي:\n`اسم_الكود القيمة عدد_الاستخدامات`\nمثال: `FREE50 10 100`", parse_mode="Markdown")
@@ -680,13 +711,54 @@ def handle_callbacks(call):
             bot.register_next_step_handler(msg, process_reply_support, target_uid)
 
 # ==================== المعالجات المتسلسلة (Next Step Handlers) ====================
-def process_single_setting_update(message, key):
+def process_single_setting_update(message, key, label_name):
     try:
         val = message.text.strip()
         set_setting(key, val)
-        bot.send_message(message.chat.id, f"✅ تم تحديث `{key}` إلى `{val}` بنجاح!", parse_mode="Markdown")
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton("🔙 رجوع للإعدادات", callback_data="adm_settings_menu"))
+        bot.send_message(message.chat.id, f"✅ تم تحديث **{label_name}** إلى `{val}` بنجاح!", reply_markup=kb, parse_mode="Markdown")
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ خطأ: {e}")
+
+# --- إضافة قناة تفاعلية ممتازة خطوة بخطوة ---
+def process_adm_add_channel_step1(message):
+    ch_id = message.text.strip()
+    msg = bot.send_message(
+        message.chat.id,
+        f"2️⃣ **الخطوة الثانية**: أرسل **اسم القناة** باللغة العربية (الذي سيظهر للعميل على أزرار الاشتراك):\n(مثال: `قناة العروض الرسمية`)",
+        parse_mode="Markdown"
+    )
+    bot.register_next_step_handler(msg, process_adm_add_channel_step2, ch_id)
+
+def process_adm_add_channel_step2(message, ch_id):
+    ch_name = message.text.strip()
+    msg = bot.send_message(
+        message.chat.id,
+        f"3️⃣ **الخطوة الثالثة والأخيرة**: أرسل **رابط القناة** (رابط الدعوة أو الرابط العام):\n(مثال: `https://t.me/mychannel`)",
+        parse_mode="Markdown"
+    )
+    bot.register_next_step_handler(msg, process_adm_add_channel_step3, ch_id, ch_name)
+
+def process_adm_add_channel_step3(message, ch_id, ch_name):
+    ch_url = message.text.strip()
+    conn = get_db()
+    conn.execute("INSERT OR REPLACE INTO channels (channel_id, name, url) VALUES (?, ?, ?)", (ch_id, ch_name, ch_url))
+    conn.commit()
+    conn.close()
+    
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("🔙 رجوع لإدارة القنوات", callback_data="adm_channels_menu"))
+    
+    bot.send_message(
+        message.chat.id,
+        f"✅ **تمت إضافة القناة بنجاح!**\n\n"
+        f"📌 المعرف: `{ch_id}`\n"
+        f"🏷 الاسم: **{ch_name}**\n"
+        f"🔗 الرابط: {ch_url}",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
 
 def process_withdraw_amount(message, m_key, min_w, max_w):
     user_id = message.from_user.id
@@ -809,18 +881,6 @@ def process_adm_add_admin(message):
         bot.send_message(message.chat.id, f"✅ تم إسناد صلاحيات الأدمن لـ `{uid}` بنجاح.", parse_mode="Markdown")
     except Exception:
         bot.send_message(message.chat.id, "❌ خطأ في إدخال ID.")
-
-def process_adm_add_channel(message):
-    try:
-        parts = message.text.split()
-        ch_id, ch_url = parts[0], parts[1]
-        conn = get_db()
-        conn.execute("INSERT OR REPLACE INTO channels (channel_id, url) VALUES (?, ?)", (ch_id, ch_url))
-        conn.commit()
-        conn.close()
-        bot.send_message(message.chat.id, f"✅ تم إضافة القناة `{ch_id}` بنجاح.", parse_mode="Markdown")
-    except Exception:
-        bot.send_message(message.chat.id, "❌ خطأ بالتنسيق.")
 
 def process_adm_private_msg(message):
     try:
