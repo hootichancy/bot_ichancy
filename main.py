@@ -1,15 +1,3 @@
-import sys
-import subprocess
-
-# ==================== التثبيت التلقائي للمكتبات ====================
-try:
-    import telebot
-    import flask
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyTelegramBotAPI==4.14.0", "Flask==3.0.0", "gunicorn==21.2.0"])
-    import telebot
-    import flask
-
 import os
 import re
 import sqlite3
@@ -17,6 +5,7 @@ import random
 import datetime
 from threading import Thread
 from flask import Flask
+import telebot
 from telebot import types
 
 # ==================== البيانات الأساسية ====================
