@@ -869,5 +869,15 @@ if __name__ == "__main__":
     flask_thread.daemon = True
     flask_thread.start()
 
+    # إلغاء الـ Webhook القديم لمنع خطأ Error 409 Conflict
+    try:
+        bot.remove_webhook()
+        print("Webhook successfully removed.")
+    except Exception as e:
+        print(f"Webhook removal note: {e}")
+
     print("Bot starting polling...")
-    bot.infinity_polling(skip_pending=True, allowed_updates=telebot.util.update_types)
+    bot.infinity_polling(
+        skip_pending=True,
+        allowed_updates=['message', 'edited_message', 'callback_query', 'chat_member', 'my_chat_member']
+    )
