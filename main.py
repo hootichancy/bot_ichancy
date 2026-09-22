@@ -1,3 +1,15 @@
+import sys
+import subprocess
+
+# ==================== التثبيت التلقائي للمكتبات ====================
+try:
+    import telebot
+    import flask
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyTelegramBotAPI==4.14.0", "Flask==3.0.0", "gunicorn==21.2.0"])
+    import telebot
+    import flask
+
 import os
 import re
 import sqlite3
@@ -5,7 +17,6 @@ import random
 import datetime
 from threading import Thread
 from flask import Flask
-import telebot
 from telebot import types
 
 # ==================== البيانات الأساسية ====================
@@ -337,7 +348,6 @@ def handle_callbacks(call):
     user_id = call.from_user.id
     data = call.data
 
-    # التفاعل السريع
     try:
         bot.answer_callback_query(call.id)
     except Exception:
@@ -361,7 +371,6 @@ def handle_callbacks(call):
         conn = get_db()
         conn.execute("UPDATE users SET captcha_passed=1 WHERE user_id=?", (user_id,))
         
-        # إضافة البونص الترحيبي ورصيد الإحالة
         welcome_active = get_setting("welcome_bonus_active")
         welcome_amt = float(get_setting("welcome_bonus_amount"))
         if welcome_active == "1" and welcome_amt > 0:
@@ -375,7 +384,7 @@ def handle_callbacks(call):
             conn.commit()
             try:
                 bot.send_message(ref_id, f"🎉 انضم شخص جديد عن طريق رابطك! حصلت على **{ref_reward} NPS**")
-                bot.send_message(SUPER_ADMIN_ID, f"🔔 **إشعار إحالة**:\nالمستخدم: {user_id}\nعن طريق: {ref_id}")
+                bot.send_message(SUPER_ADMIN_ID, f"🔔 **إشعار إحالة**:\nالمستخدم: `{user_id}`\nعن طريق: `{ref_id}`", parse_mode="Markdown")
             except Exception:
                 pass
         else:
@@ -396,7 +405,6 @@ def handle_callbacks(call):
         bot.send_message(user_id, f"💳 **رصيدك الحالي**: `{user['balance']}` NPS", parse_mode="Markdown")
 
     elif data == "user_withdraw":
-        # فحص التقيد الزمني للسحب
         cooldown = int(get_setting("withdraw_cooldown_hours"))
         if user['last_withdraw']:
             last_w = datetime.datetime.strptime(user['last_withdraw'], '%Y-%m-%d %H:%M:%S')
@@ -498,9 +506,76 @@ def handle_callbacks(call):
         conn.close()
         bot.send_message(user_id, f"📊 **إحصائيات البوت**:\n\n👥 عدد المستخدمين: `{total_users}`\n💰 إجمالي الأرصدة: `{total_balance}` NPS", parse_mode="Markdown")
 
+    elif data == "adm_user_info" and is_admin(user_id):
+        msg = bot.send_message(user_id, "أدخل ID العميل المراد عرض تفاصيله:")
+        bot.register_next_step_handler(msg, process_adm_user_info)
+
+    elif data == "adm_add_admin" and is_admin(user_id):
+        msg = bot.send_message(user_id, "أدخل ID الأدمن الجديد:")
+        bot.register_next_step_handler(msg, process_adm_add_admin)
+
+    elif data == "adm_add_channel" and is_admin(user_id):
+        msg = bot.send_message(user_id, "أدخل معرف القناة ورابطها بالنمط التالي:\n`@channel_username https://t.me/channel_url`")
+        bot.register_next_step_handler(msg, process_adm_add_channel)
+
     elif data == "adm_gen_code" and is_admin(user_id):
         msg = bot.send_message(user_id, "أدخل بيانات الكود بالشكل التالي:\n`اسم_الكود القيمة عدد_الاستخدامات`\nمثال: `FREE50 10 100`")
         bot.register_next_step_handler(msg, process_gen_code)
+
+    elif data == "adm_del_code" and is_admin(user_id):
+        msg = bot.send_message(user_id, "أدخل اسم الكود المراد إلغائه:")
+        bot.register_next_step_handler(msg, process_adm_del_code)
+
+    elif data == "adm_reset_balances" and is_admin(user_id):
+        conn = get_db()
+        conn.execute("UPDATE users SET balance = 0")
+        conn.commit()
+        conn.close()
+        bot.send_message(user_id, "✅ تم تصفير جميع أرصدة المستخدمين بنجاح.")
+
+    elif data == "adm_toggle_maint" and is_admin(user_id):
+        curr = get_setting("maintenance_mode")
+        new_val = "1" if curr == "0" else "0"
+        set_setting("maintenance_mode", new_val)
+        status = "مفعل 🛠" if new_val == "1" else "معطل ✅"
+        bot.send_message(user_id, f"تم تغيير وضع الصيانة إلى: **{status}**")
+
+    elif data == "adm_private_msg" and is_admin(user_id):
+        msg = bot.send_message(user_id, "أدخل ID المستخدم ثم النص بالنمط التالي:\n`user_id الرسالة`")
+        bot.register_next_step_handler(msg, process_adm_private_msg)
+
+    elif data == "adm_broadcast" and is_admin(user_id):
+        msg = bot.send_message(user_id, "أدخل نص الرسالة الجماعية التي ترغب بإرسالها لكافة العُملاء:")
+        bot.register_next_step_handler(msg, process_adm_broadcast)
+
+    elif data == "adm_settings_config" and is_admin(user_id):
+        msg = bot.send_message(
+            user_id,
+            "⚙️ **تغيير الإعدادات**:\nأرسل مفتاح الإعداد والقيمة مفصولين بمسافة:\n\n"
+            "المفاتيح المتاحة:\n"
+            "`min_withdraw_syriatel`\n`max_withdraw_syriatel`\n`min_withdraw_sham`\n`max_withdraw_sham`\n"
+            "`withdraw_cooldown_hours`\n`promo_cooldown_hours`\n`ref_reward`\n`daily_reward`\n`weekly_reward`\n\n"
+            "مثال: `ref_reward 10`"
+        )
+        bot.register_next_step_handler(msg, process_adm_set_config)
+
+    elif data == "adm_ban_user" and is_admin(user_id):
+        msg = bot.send_message(user_id, "أدخل ID المستخدم لحظره أو إلغاء حظره:")
+        bot.register_next_step_handler(msg, process_adm_ban_user)
+
+    elif data == "adm_leaderboard" and is_admin(user_id):
+        conn = get_db()
+        top_users = conn.execute("SELECT user_id, first_name, balance, referrals_count FROM users ORDER BY balance DESC LIMIT 10").fetchall()
+        conn.close()
+        text = "🏆 **سجل أعلى اللاعبين رصيداً وإحالات**:\n\n"
+        for idx, u in enumerate(top_users, 1):
+            text += f"{idx}. {u['first_name']} (`{u['user_id']}`)\n   💰 الرصيد: `{u['balance']}` | 👥 الإحالات: `{u['referrals_count']}`\n"
+        bot.send_message(user_id, text, parse_mode="Markdown")
+
+    elif data.startswith("reply_supp_") and is_admin(user_id):
+        target_uid = data.split("_")[2]
+        msg = bot.send_message(user_id, f"اكتب الرد الموجه للعميل `{target_uid}`:")
+        bot.register_next_step_handler(msg, process_reply_support, target_uid)
 
 # ==================== المعالجات المتسلسلة (Next Step Handlers) ====================
 def process_withdraw_amount(message, m_key, min_w, max_w):
@@ -535,14 +610,9 @@ def process_withdraw_account(message, amount):
     conn.close()
 
     bot.send_message(user_id, "✅ تم إرسال طلب السحب بنجاح للمراجعة!")
-    
-    # إشعار الأدمن
     bot.send_message(
         SUPER_ADMIN_ID,
-        f"🚨 **طلب سحب جديد**:\n"
-        f"المستخدم: `{user_id}`\n"
-        f"المبلغ: `{amount}` NPS\n"
-        f"الحساب: `{acc_num}`",
+        f"🚨 **طلب سحب جديد**:\nالمستخدم: `{user_id}`\nالمبلغ: `{amount}` NPS\nالحساب: `{acc_num}`",
         parse_mode="Markdown"
     )
 
@@ -576,6 +646,13 @@ def process_support_msg(message):
     bot.send_message(SUPER_ADMIN_ID, f"📩 **رسالة دعم من** `{user_id}`:\n\n{message.text}", reply_markup=kb, parse_mode="Markdown")
     bot.send_message(user_id, "✅ تم إرسال رسالتك لفريق الدعم.")
 
+def process_reply_support(message, target_uid):
+    try:
+        bot.send_message(target_uid, f"💬 **رد من فريق الدعم**:\n\n{message.text}")
+        bot.send_message(message.chat.id, "✅ تم إرسال الرد بنجاح.")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ فشل الإرسال: {e}")
+
 def process_gen_code(message):
     try:
         parts = message.text.split()
@@ -590,6 +667,130 @@ def process_gen_code(message):
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ حدث خطأ بتنسيق البيانات: {e}")
 
+def process_adm_user_info(message):
+    try:
+        uid = int(message.text.strip())
+        u = get_user(uid)
+        if not u:
+            bot.send_message(message.chat.id, "❌ المستخدم غير موجود بالبيانات.")
+            return
+        
+        text = (
+            f"👤 **تفاصيل العميل** `{uid}`:\n\n"
+            f"الاسم: {u['first_name']}\n"
+            f"المعرف: @{u['username']}\n"
+            f"الرقم: `{u['phone']}`\n"
+            f"الرصيد: `{u['balance']}` NPS\n"
+            f"عدد الإحالات: `{u['referrals_count']}`\n"
+            f"مرات السحب: `{u['withdrawals_count']}`\n"
+            f"المُحيل: `{u['referred_by']}`"
+        )
+        bot.send_message(message.chat.id, text, parse_mode="Markdown")
+    except Exception:
+        bot.send_message(message.chat.id, "❌ خطأ في إدخال ID.")
+
+def process_adm_add_admin(message):
+    try:
+        uid = int(message.text.strip())
+        conn = get_db()
+        conn.execute("INSERT OR IGNORE INTO admins (user_id) VALUES (?)", (uid,))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, f"✅ تم إسناد صلاحيات الأدمن لـ `{uid}` بنجاح.")
+    except Exception:
+        bot.send_message(message.chat.id, "❌ خطأ في إدخال ID.")
+
+def process_adm_add_channel(message):
+    try:
+        parts = message.text.split()
+        ch_id, ch_url = parts[0], parts[1]
+        conn = get_db()
+        conn.execute("INSERT OR REPLACE INTO channels (channel_id, url) VALUES (?, ?)", (ch_id, ch_url))
+        conn.commit()
+        conn.close()
+        bot.send_message(message.chat.id, f"✅ تم إضافة القناة `{ch_id}` بنجاح.")
+    except Exception:
+        bot.send_message(message.chat.id, "❌ خطأ بالتنسيق.")
+
+def process_adm_del_code(message):
+    code_text = message.text.strip()
+    conn = get_db()
+    conn.execute("UPDATE promo_codes SET is_active=0 WHERE code=?", (code_text,))
+    conn.commit()
+    conn.close()
+    bot.send_message(message.chat.id, f"✅ تم إلغاء الكود `{code_text}`.")
+
+def process_adm_private_msg(message):
+    try:
+        parts = message.text.split(maxsplit=1)
+        uid, txt = int(parts[0]), parts[1]
+        bot.send_message(uid, f"📩 **رسالة خاصة من الإدارة**:\n\n{txt}")
+        bot.send_message(message.chat.id, "✅ تم الإرسال بنجاح.")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ حدث خطأ: {e}")
+
+def process_adm_broadcast(message):
+    txt = message.text
+    conn = get_db()
+    users = conn.execute("SELECT user_id FROM users").fetchall()
+    conn.close()
+    
+    count = 0
+    for u in users:
+        try:
+            bot.send_message(u['user_id'], f"📢 **تنويه جماعي**:\n\n{txt}")
+            count += 1
+        except Exception:
+            pass
+    bot.send_message(message.chat.id, f"✅ تم إرسال الإذاعة إلى `{count}` مستخدم.")
+
+def process_adm_set_config(message):
+    try:
+        parts = message.text.split()
+        k, v = parts[0], parts[1]
+        set_setting(k, v)
+        bot.send_message(message.chat.id, f"✅ تم ضبط `{k}` على القيمة `{v}`.")
+    except Exception:
+        bot.send_message(message.chat.id, "❌ خطأ في التنسيق.")
+
+def process_adm_ban_user(message):
+    try:
+        uid = int(message.text.strip())
+        u = get_user(uid)
+        if not u:
+            bot.send_message(message.chat.id, "❌ المستخدم غير موجود.")
+            return
+        new_ban = 0 if u['is_banned'] else 1
+        conn = get_db()
+        conn.execute("UPDATE users SET is_banned=? WHERE user_id=?", (new_ban, uid))
+        conn.commit()
+        conn.close()
+        st = "حظر" if new_ban else "إلغاء حظر"
+        bot.send_message(message.chat.id, f"✅ تم {st} المستخدم `{uid}`.")
+    except Exception:
+        bot.send_message(message.chat.id, "❌ خطأ في ID.")
+
+# ==================== نظام الإخصام عند مغادرة القنوات ====================
+@bot.chat_member_handler()
+def handle_chat_member(update):
+    if update.new_chat_member.status in ['left', 'kicked']:
+        user_id = update.new_chat_member.user.id
+        u = get_user(user_id)
+        if u:
+            update_balance(user_id, -3)
+            try:
+                bot.send_message(user_id, "⚠️ تم خصم **3 NPS** من رصيدك بسبب مغادرتك إحدى القنوات الإجبارية!")
+            except Exception:
+                pass
+            
+            ref_id = u['referred_by']
+            if ref_id:
+                update_balance(ref_id, -3)
+                try:
+                    bot.send_message(ref_id, f"⚠️ تم خصم **3 NPS** من رصيدك بسبب مغادرة المستخدم الذي قمت بإحالته (`{user_id}`) للقناة!")
+                except Exception:
+                    pass
+
 # ==================== استقبال كافة الرسائل العادية والتفاعل ====================
 @bot.message_handler(func=lambda m: True)
 def auto_reaction_handler(message):
@@ -597,10 +798,9 @@ def auto_reaction_handler(message):
 
 # ==================== تشغيل التطبيق ====================
 if __name__ == "__main__":
-    # تشغيل خادم Flask في المسار الخلفي (Thread) لإرضاء منصة Render
     flask_thread = Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
 
     print("Bot starting polling...")
-    bot.infinity_polling(skip_pending=True)
+    bot.infinity_polling(skip_pending=True, allowed_updates=telebot.util.update_types)
