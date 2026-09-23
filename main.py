@@ -7,7 +7,7 @@ import telebot
 from telebot import types
 
 # ==================== البيانات الأساسية ====================
-BOT_TOKEN = "8776743286:AAHjnoEhY-wSC77kPm1xHpCQ_HOkXT44pNc"
+BOT_TOKEN = "8776743286:AAFlC0xFDGNtP1ZqwcLP_jLxf_M6Jd_joVQ"
 SUPER_ADMIN_ID = 8577656131
 DEV_CHANNEL_URL = "https://t.me/lerafree"
 DEV_CHANNEL_USERNAME = "lerafree"
